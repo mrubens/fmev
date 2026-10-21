@@ -4,6 +4,9 @@ import FoundationModels
 struct EngineConfig {
     /// Maximum on-device generations in flight at once.
     var concurrency = 4
+    /// Ask Choice questions with 3+ options a second turn for the runner-up, so the remainder isn't
+    /// split evenly. Off by default: it nearly doubles latency.
+    var runnerUp = false
 }
 
 struct Usage {
@@ -31,6 +34,24 @@ actor AsyncSemaphore {
     func release() {
         if waiters.isEmpty { available += 1 } else { waiters.removeFirst().resume() }
     }
+}
+
+/// Deterministic RNG, so the same request always numbers the runner-up options the same way.
+struct SplitMix64: RandomNumberGenerator {
+    var state: UInt64
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+func fnv1a(_ text: String) -> UInt64 {
+    var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+    for byte in text.utf8 { hash = (hash ^ UInt64(byte)) &* 0x100_0000_01B3 }
+    return hash
 }
 
 /// Renders a string|object|array value the way it should appear in a prompt.
@@ -109,18 +130,20 @@ final class Engine: @unchecked Sendable {
             if let no { lines.append("\"no\" means: \(render(no))") }
             let (p, usage) = try await distribution(
                 state: stateText, question: instructions ?? "Is the statement in the criteria true for the state?",
-                options: ["yes", "no"], optionText: lines.joined(separator: "\n"))
+                options: ["yes", "no"], optionText: lines.joined(separator: "\n"), remainder: .even)
             return (["type": "noul", "noul": p["yes"]!], usage)
 
         case let .choice(options):
             let names = options.map(\.name)
             let descriptions = Dictionary(uniqueKeysWithValues: options.map { ($0.name, $0.description) })
+            func label(for name: String) -> String {
+                descriptions[name]!.map { "\(quoted(name)): \(render($0))" } ?? quoted(name)
+            }
             let (p, usage) = try await distribution(
                 state: stateText, question: instructions ?? "Which option best fits the state?",
                 options: names,
-                optionText: "Options:\n" + names.map { name in
-                    descriptions[name]!.map { "- \(quoted(name)): \(render($0))" } ?? "- \(quoted(name))"
-                }.joined(separator: "\n"))
+                optionText: "Options:\n" + names.map { "- " + label(for: $0) }.joined(separator: "\n"),
+                remainder: config.runnerUp ? .runnerUp(label) : .even)
             let best = names.max { p[$0]! < p[$1]! }!
             let n = Double(names.count)
             let confidence = n > 1 ? max(0, (p[best]! - 1 / n) / (1 - 1 / n)) : 1
@@ -132,7 +155,8 @@ final class Engine: @unchecked Sendable {
                 state: stateText, question: instructions ?? "Rate the state on the scale below.",
                 options: keys,
                 optionText: "Ordered levels (pick the level number that fits best):\n"
-                    + levels.enumerated().map { "- \(quoted(String($0))): \(render($1))" }.joined(separator: "\n"))
+                    + levels.enumerated().map { "- \(quoted(String($0))): \(render($1))" }.joined(separator: "\n"),
+                remainder: .ordinal)
             let probs = keys.map { p[$0]! }
             let score = probs.enumerated().reduce(0) { $0 + Double($1.offset) * $1.element }
             var legend: [String: Any] = [:]
@@ -154,11 +178,26 @@ final class Engine: @unchecked Sendable {
 
     // MARK: - Generation
 
+    /// How the probability left over after the chosen option is shared among the other options.
+    private enum Remainder {
+        /// Evenly.
+        case even
+        /// Ask the model, in a second turn, which other option fits best, and tilt the share toward it.
+        /// The closure renders an option for that turn's list.
+        case runnerUp((String) -> String)
+        /// Score levels: by closeness to the chosen level, halving with each step away.
+        case ordinal
+    }
+
+    /// Share of the remainder above an even split that the model's runner-up gets. Its runner-ups were
+    /// right on about 45% of misses on jevbench (against about 34% by chance), so the tilt is small.
+    private static let runnerUpTilt = 0.15
+
     /// One greedy, schema-constrained generation that returns an allowed option plus the model's stated
-    /// probability that it is correct. The stated answer gets that probability; the remainder is spread
-    /// evenly over the other options.
+    /// probability that it is correct. The stated answer gets that probability; `remainder` decides how
+    /// the rest is shared.
     private func distribution(
-        state: String, question: String, options: [String], optionText: String
+        state: String, question: String, options: [String], optionText: String, remainder: Remainder
     ) async throws -> ([String: Double], Usage) {
         let n = Double(options.count)
         // Anchoring each range to a situation gave the best-calibrated numbers of the prompts tried on jevbench.
@@ -183,17 +222,74 @@ final class Engine: @unchecked Sendable {
             .init(name: "answer", schema: DynamicGenerationSchema(name: "Option", anyOf: options)),
             .init(name: "confidence", schema: DynamicGenerationSchema(type: Int.self, guides: [.range(0...100)])),
         ]), dependencies: [])
-        let content: GeneratedContent, usage: Usage
-        do {
-            (content, usage) = try await withLimit { try await self.generate(prompt, schema: schema) }
-        } catch {
-            throw map(error)
+
+        return try await withLimit {
+            let session = LanguageModelSession(model: model, instructions: systemInstructions)
+            var usage = Usage()
+            let content: GeneratedContent
+            do {
+                content = try await generate(prompt, schema: schema, in: session, usage: &usage)
+            } catch {
+                throw map(error)
+            }
+            let choice = try content.value(String.self, forProperty: "answer")
+            let stated = Double(try content.value(Int.self, forProperty: "confidence")) / 100
+            // Keep the stated answer strictly on top, even when the model states chance or less.
+            let top = n > 1 ? max(stated, 1 / n + 0.01) : 1
+            let others = options.filter { $0 != choice }
+
+            var weights = Dictionary(uniqueKeysWithValues: others.map { ($0, 1.0) })
+            switch remainder {
+            case .even:
+                break
+            case .ordinal:
+                let c = options.firstIndex(of: choice)!
+                for (i, option) in options.enumerated() where option != choice {
+                    weights[option] = pow(0.5, Double(abs(i - c)))
+                }
+            case let .runnerUp(label):
+                // Only worth a second turn when there is more than one alternative to rank.
+                if others.count > 1,
+                   let next = try? await runnerUp(after: choice, among: others, label: label, seed: prompt,
+                                                  in: session, usage: &usage) {
+                    let share = 1 / Double(others.count) + Self.runnerUpTilt * (1 - 1 / Double(others.count))
+                    for option in others {
+                        weights[option] = option == next ? share : (1 - share) / Double(others.count - 1)
+                    }
+                }
+            }
+            let total = weights.values.reduce(0, +)
+            var probs = [choice: top]
+            for option in others { probs[option] = (1 - top) * weights[option]! / total }
+            // An uneven split must not tie or overtake the chosen option; fall back to an even one.
+            if others.contains(where: { probs[$0]! >= top }) {
+                for option in others { probs[option] = (1 - top) / Double(others.count) }
+            }
+            return (probs, usage)
         }
-        let choice = try content.value(String.self, forProperty: "answer")
-        let stated = Double(try content.value(Int.self, forProperty: "confidence")) / 100
-        // Keep the stated answer on top even when the model states less than chance.
-        let top = n > 1 ? max(stated, 1 / n) : 1
-        return (Dictionary(uniqueKeysWithValues: options.map { ($0, $0 == choice ? top : (1 - top) / (n - 1)) }), usage)
+    }
+
+    /// Second turn on the same session: which option fits best once the first pick is ruled out. The
+    /// options are numbered in a shuffled order (seeded by the prompt), and the model answers with a
+    /// number, so neither list position nor a name that shares a prefix with the pick decides it.
+    private func runnerUp(
+        after choice: String, among others: [String], label: (String) -> String, seed: String,
+        in session: LanguageModelSession, usage: inout Usage
+    ) async throws -> String {
+        var rng = SplitMix64(state: fnv1a(seed))
+        let order = others.shuffled(using: &rng)
+        let prompt = """
+        Suppose \(quoted(choice)) is ruled out. Which remaining option best fits the state?
+        \(order.enumerated().map { "\($0 + 1). \(label($1))" }.joined(separator: "\n"))
+        Answer with the number.
+        """
+        let schema = try GenerationSchema(root: DynamicGenerationSchema(name: "RunnerUp", properties: [
+            .init(name: "number", schema: DynamicGenerationSchema(name: "Number", anyOf: order.indices.map { String($0 + 1) })),
+        ]), dependencies: [])
+        let content = try await generate(prompt, schema: schema, in: session, usage: &usage, maximumTokens: 8)
+        guard let index = Int(try content.value(String.self, forProperty: "number")), order.indices.contains(index - 1)
+        else { throw EngineError(status: 500, detail: "Unparseable runner-up") }
+        return order[index - 1]
     }
 
     private func withLimit<T>(_ body: () async throws -> T) async throws -> T {
@@ -202,12 +298,16 @@ final class Engine: @unchecked Sendable {
         return try await body()
     }
 
-    private func generate(_ prompt: String, schema: GenerationSchema) async throws -> (GeneratedContent, Usage) {
-        let session = LanguageModelSession(model: model, instructions: systemInstructions)
-        let options = GenerationOptions(samplingMode: .greedy, maximumResponseTokens: 64)
+    /// Runs one greedy turn on `session`, adding its token counts to `usage`.
+    private func generate(
+        _ prompt: String, schema: GenerationSchema, in session: LanguageModelSession, usage: inout Usage,
+        maximumTokens: Int = 64
+    ) async throws -> GeneratedContent {
+        let options = GenerationOptions(samplingMode: .greedy, maximumResponseTokens: maximumTokens)
         let response = try await session.respond(to: prompt, schema: schema, includeSchemaInPrompt: false, options: options)
-        let u = session.usage
-        return (response.content, Usage(input: u.input.totalTokenCount, output: u.output.totalTokenCount))
+        usage.input += response.usage.input.totalTokenCount
+        usage.output += response.usage.output.totalTokenCount
+        return response.content
     }
 
     private func map(_ error: Error) -> EngineError {

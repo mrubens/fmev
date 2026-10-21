@@ -70,7 +70,7 @@ Response:
 }
 ```
 
-The message fits both 🍽️ and 🤒, so the model reports only 75% confidence in its pick. fmev gets one stated probability from the model, so the other options share the remainder equally.
+The message fits both 🍽️ and 🤒, so the model reports only 75% confidence in its pick. By default the other options share the remainder equally; with `FMEV_RUNNER_UP=1`, the model's second choice gets a larger share.
 
 With the SDK:
 
@@ -92,10 +92,13 @@ const client = new TypeSafeClient({ apiKey: "local", baseURL: "http://127.0.0.1:
 | `FMEV_PORT` / `FMEV_HOST` | `8787` / `127.0.0.1` | Listen address |
 | `FMEV_API_KEY` | unset | If set, requests need `Authorization: Bearer <key>` |
 | `FMEV_CONCURRENCY` | `4` | On-device generations in flight at once |
+| `FMEV_RUNNER_UP` | off | `1` asks Choice questions a second question to find the runner-up (see below); 1.5–2× slower |
 
 ## How it works, and how it differs from Jev
 
-Foundation Models exposes no token probabilities, so fmev asks the model for them. Each question is one greedy generation, constrained by a schema to an allowed option (`yes`/`no` for Noul, a criteria name for Choice, a level number for Score) plus the model's stated probability, 0–100, that its answer is correct. The prompt anchors each range to a situation ("95–100 only when the state states the answer directly…"). The chosen option gets that probability, and the remainder is spread evenly over the other options. `score` and `confidence` then use TypeSafe's published formulas.
+Foundation Models exposes no token probabilities, so fmev asks the model for them. Each question is one greedy generation, constrained by a schema to an allowed option (`yes`/`no` for Noul, a criteria name for Choice, a level number for Score) plus the model's stated probability, 0–100, that its answer is correct. The prompt anchors each range to a situation ("95–100 only when the state states the answer directly…"). The chosen option gets that probability. For Score questions, the remainder goes mostly to the levels next to the chosen one, halving with each step away. For Choice and Noul questions it is split evenly over the other options. `score` and `confidence` then use TypeSafe's published formulas.
+
+With `FMEV_RUNNER_UP=1`, Choice questions with three or more options get a second question in the same session: which option fits best if the first pick is ruled out. That option gets a slightly larger share of the remainder. On jevbench's public items, the runner-up was the right answer on 21 of 45 misses (47%, against 34% by chance). It leaves the chosen option and its probability unchanged and costs 1.5–2× the latency, so it's off by default.
 
 These are verbalized probabilities, not the model's internal ones, and they are not calibrated like Jev's. The model is often confidently wrong on hard items, so treat confidence as a weak signal and check thresholds on your own data.
 

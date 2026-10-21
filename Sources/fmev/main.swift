@@ -18,6 +18,7 @@ Configure it with environment variables:
   FMEV_HOST, FMEV_PORT    listen address (default 127.0.0.1:8787)
   FMEV_API_KEY            require Authorization: Bearer <key>
   FMEV_CONCURRENCY        on-device generations in flight (4)
+  FMEV_RUNNER_UP          1: ask for a runner-up so alternatives aren't split evenly (slower)
 
 Requires an Apple Silicon Mac on macOS 27+ with Apple Intelligence turned on.
 https://github.com/mrubens/fmev
@@ -40,6 +41,7 @@ let modelName = "fmev"
 
 var config = EngineConfig()
 if let v = env["FMEV_CONCURRENCY"].flatMap(Int.init) { config.concurrency = max(1, v) }
+config.runnerUp = ["1", "true", "yes"].contains(env["FMEV_RUNNER_UP"]?.lowercased() ?? "")
 
 let engine = Engine(config: config)
 let models: [[String: Any]] = [
@@ -103,6 +105,6 @@ if let problem = engine.availabilityProblem {
 
 let server = try HTTPServer(host: host, port: port) { await handle($0) }
 server.start {
-    print("fmev listening on http://\(host):\(port) (concurrency=\(config.concurrency)\(apiKey == nil ? "" : ", auth on"))")
+    print("fmev listening on http://\(host):\(port) (concurrency=\(config.concurrency)\(config.runnerUp ? ", runner-up on" : "")\(apiKey == nil ? "" : ", auth on"))")
 }
 dispatchMain()
