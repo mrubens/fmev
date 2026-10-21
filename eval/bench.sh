@@ -22,7 +22,7 @@ head -1 "$REPO/bench/fmev-$NAME.log"
 cd "$REPO/bench/jevbench"
 for s in original easy hard; do
   python3 -m jevbench.cli run --tasks datasets/public/$s.jsonl --adapter typesafe \
-    --endpoint "http://127.0.0.1:$PORT" --key-env '' --model jev-latest \
+    --endpoint "http://127.0.0.1:$PORT" --key-env '' --model fmev \
     --cost-basis on_device_local_no_billing --reserve-usd 0 \
     --results "$OUT/$s/results.jsonl" --raw-dir "$OUT/$s/raw" --ledger "$OUT/ledger.jsonl" \
     --manifest "$OUT/$s/manifest.json" --run-label "fmev-$NAME" 2>&1 | tail -1

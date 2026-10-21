@@ -34,7 +34,7 @@ For example, to pick the best status emoji for an away message, make the message
 
 ```bash
 curl -s localhost:8787/v1/systemone -H 'Content-Type: application/json' -d '{
-  "model": "jev-latest",
+  "model": "fmev",
   "state": {"away_message": "Boarding now, back online when I land in Tokyo (~14h)."},
   "questions": {
     "emoji": {
