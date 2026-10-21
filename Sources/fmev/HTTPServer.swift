@@ -35,8 +35,20 @@ struct HTTPResponse {
     var contentType = "application/json"
 
     static func json(_ status: Int, _ object: Any) -> HTTPResponse {
-        let data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])) ?? Data("{}".utf8)
+        let data = (try? JSONSerialization.data(withJSONObject: shortestNumbers(object), options: [.sortedKeys])) ?? Data("{}".utf8)
         return HTTPResponse(status: status, body: data)
+    }
+
+    /// JSONSerialization writes doubles with 17 significant digits (0.93999999999999995). Round to
+    /// 6 decimal places, which also drops floating-point noise like 0.010000000000000009, and write
+    /// the shortest decimal form (0.94).
+    private static func shortestNumbers(_ value: Any) -> Any {
+        switch value {
+        case let d as Double where d.isFinite: return NSDecimalNumber(string: "\((d * 1e6).rounded() / 1e6)")
+        case let dict as [String: Any]: return dict.mapValues(shortestNumbers)
+        case let array as [Any]: return array.map(shortestNumbers)
+        default: return value
+        }
     }
 
     func serialize() -> Data {

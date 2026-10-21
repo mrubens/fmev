@@ -52,9 +52,9 @@ client = TypeSafeClient(api_key="local", base_url="http://127.0.0.1:8787")
 const client = new TypeSafeClient({ apiKey: "local", baseURL: "http://127.0.0.1:8787" });
 ```
 
-For a complete example, see [examples/away_emoji.py](examples/README.md), which picks the best status emoji for away messages.
-
 ## Configuration (environment variables)
+
+`fmev --help` lists these settings; `fmev --version` prints the version.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -92,3 +92,43 @@ AUROC measures how well the confidence separates right answers from wrong ones (
 - `box` questions and image `assets` return 422.
 - The context window is small (8,192 tokens), so a long `state` returns 413.
 - Apple's guardrails can refuse some content, which returns 422.
+
+## Example: the best emoji for an away message
+
+The away message is the state, and the candidate emoji are the options of a Choice question:
+
+```bash
+curl -s localhost:8787/v1/systemone -H 'Content-Type: application/json' -d '{
+  "model": "jev-latest",
+  "state": {"away_message": "Boarding now, back online when I land in Tokyo (~14h)."},
+  "questions": {
+    "emoji": {
+      "type": "choice",
+      "instructions": "Which status emoji best fits this away message?",
+      "criteria": {
+        "🌴": "On vacation or holiday",
+        "✈️": "Traveling: on a flight or in transit",
+        "🤒": "Out sick",
+        "🍽️": "On a meal break, back shortly",
+        "📅": "In meetings, available later today",
+        "🎯": "Focus time, do not disturb"
+      }
+    }
+  }
+}'
+```
+
+```json
+{
+  "answers": {
+    "emoji": {
+      "choice": "✈️",
+      "confidence": 0.94,
+      "probabilities": {"✈️": 0.95, "🌴": 0.01, "🍽️": 0.01, "🎯": 0.01, "📅": 0.01, "🤒": 0.01},
+      "type": "choice"
+    }
+  },
+  "model": "fmev",
+  "usage": {"input_tokens": 360, "output_tokens": 18}
+}
+```

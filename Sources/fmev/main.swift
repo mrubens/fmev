@@ -4,6 +4,39 @@ import FoundationModels
 // A local server that speaks TypeSafe's System One HTTP API (POST /v1/systemone,
 // GET /v1/models) and answers with Apple's on-device Foundation Models.
 
+let usage = """
+fmev \(fmevVersion): TypeSafe System One (Jev) API on Apple's on-device Foundation Model
+
+Usage: fmev [--help | --version]
+
+Starts a server on http://127.0.0.1:8787 with these endpoints:
+  POST /v1/systemone   answer noul, choice and score questions about a state
+  GET  /v1/models      list models (fmev; jev-latest is an alias)
+  GET  /health         readiness check
+
+Configure it with environment variables:
+  FMEV_HOST, FMEV_PORT    listen address (default 127.0.0.1:8787)
+  FMEV_API_KEY            require Authorization: Bearer <key>
+  FMEV_MODE               verbal (default) or adaptive
+  FMEV_SAMPLES            adaptive: the most samples per question (8)
+  FMEV_EARLY_STOP         adaptive: samples before stopping on agreement (3)
+  FMEV_TEMPERATURE        adaptive: sampling temperature (1.0)
+  FMEV_SMOOTHING          adaptive: smoothing on vote counts (0.25)
+  FMEV_CONCURRENCY        on-device generations in flight (4)
+
+Requires an Apple Silicon Mac on macOS 27+ with Apple Intelligence turned on.
+https://github.com/mrubens/fmev
+"""
+
+switch CommandLine.arguments.dropFirst().first {
+case nil: break
+case "-h", "--help": print(usage); exit(0)
+case "-v", "--version": print("fmev \(fmevVersion)"); exit(0)
+case let other?:
+    FileHandle.standardError.write(Data("fmev: unknown argument '\(other)'; see fmev --help\n".utf8))
+    exit(2)
+}
+
 let env = ProcessInfo.processInfo.environment
 let host = env["FMEV_HOST"] ?? "127.0.0.1"
 let port = UInt16(env["FMEV_PORT"] ?? "") ?? 8787
