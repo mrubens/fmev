@@ -60,35 +60,25 @@ const client = new TypeSafeClient({ apiKey: "local", baseURL: "http://127.0.0.1:
 | --- | --- | --- |
 | `FMEV_PORT` / `FMEV_HOST` | `8787` / `127.0.0.1` | Listen address |
 | `FMEV_API_KEY` | unset | If set, requests need `Authorization: Bearer <key>` |
-| `FMEV_MODE` | `verbal` | How probabilities are produced: `verbal` or `adaptive` (see below) |
-| `FMEV_SAMPLES` | `8` | Adaptive mode: the most samples per question |
-| `FMEV_EARLY_STOP` | `3` | Adaptive mode: samples drawn before stopping on a unanimous answer |
-| `FMEV_TEMPERATURE` | `1.0` | Adaptive mode: sampling temperature |
-| `FMEV_SMOOTHING` | `0.25` | Adaptive mode: additive smoothing on the vote counts |
 | `FMEV_CONCURRENCY` | `4` | On-device generations in flight at once |
-
-In adaptive mode, the `X-FM-Samples: <n>` request header overrides the sample count for a single request (non-standard).
 
 ## How it works, and how it differs from Jev
 
-Foundation Models exposes no token probabilities, so fmev builds them in one of two ways. In both, the answer is constrained by a schema to an allowed option: `yes`/`no` for Noul, a criteria name for Choice, a level number for Score. `score` and `confidence` then use TypeSafe's published formulas.
+Foundation Models exposes no token probabilities, so fmev asks the model for them. Each question is one greedy generation, constrained by a schema to an allowed option (`yes`/`no` for Noul, a criteria name for Choice, a level number for Score) plus the model's stated probability, 0–100, that its answer is correct. The prompt anchors each range to a situation ("95–100 only when the state states the answer directly…"). The chosen option gets that probability, and the remainder is spread evenly over the other options. `score` and `confidence` then use TypeSafe's published formulas.
 
-- **`verbal` (default):** one greedy generation returns the answer plus the model's stated probability (0–100) that it is correct. The prompt anchors each range to a situation ("95–100 only when the state states the answer directly…"). The stated answer gets that probability, and the remainder is spread evenly over the other options. These are verbalized probabilities, not the model's internal ones.
-- **`adaptive`:** draws 3 sampled answers and stops if they agree, otherwise draws up to `FMEV_SAMPLES`. The probabilities are smoothed vote shares. Choice and Noul options are shuffled for each sample to reduce position bias, and seeds come from a hash of the request, so the same request returns the same answer.
+These are verbalized probabilities, not the model's internal ones, and they are not calibrated like Jev's. The model is often confidently wrong on hard items, so treat confidence as a weak signal and check thresholds on your own data.
 
 Measured on [jevbench](https://github.com/fstandhartinger/jevbench)'s 231 public decisions (M4 Max, macOS 27, on-device model variant AFM 3 Core Advanced). Macs with the AFM 3 Core variant may score differently. To reproduce, see [eval/](eval/README.md).
 
-| Mode | Accuracy | p50 latency | Hard-tier ECE | AUROC |
-| --- | --- | --- | --- | --- |
-| verbal | 66.2% | 0.58 s | 0.38 | 0.60 |
-| adaptive | 65.4% | 1.07 s | 0.40 | 0.46 |
+| Set | Accuracy | p50 latency | ECE |
+| --- | --- | --- | --- |
+| standard (72) | 84.7% | 0.58 s | 0.12 |
+| easy (48) | 100% | 0.60 s | 0.09 |
+| hard (111) | 39.6% | 0.90 s | 0.38 |
 
-Other approaches were measured and dropped: always drawing 8 samples (same accuracy as adaptive at twice the latency), four other confidence prompts, and Apple's content-tagging adapter (2 points less accurate and slower).
+Other approaches were measured and dropped: sampling the model several times and using vote shares as probabilities (same accuracy, 2–4× slower, no better calibrated), four other confidence prompts, and Apple's content-tagging adapter (2 points less accurate and slower).
 
-AUROC measures how well the confidence separates right answers from wrong ones (0.5 is chance).
-
-- No mode is calibrated like Jev. The model is often confidently wrong on hard items, so treat confidence as a weak signal and check thresholds on your own data.
-- `usage` counts the tokens of every generation.
+- Questions in one request run in parallel.
 - `box` questions and image `assets` return 422.
 - The context window is small (8,192 tokens), so a long `state` returns 413.
 - Apple's guardrails can refuse some content, which returns 422.

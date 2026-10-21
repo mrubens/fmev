@@ -3,7 +3,7 @@
 #
 # Usage: eval/bench.sh <name> [VAR=value ...]
 #   eval/bench.sh verbal
-#   eval/bench.sh adaptive FMEV_MODE=adaptive
+#   eval/bench.sh verbal-c8 FMEV_CONCURRENCY=8
 # Results go to bench/runs/<name>/{original,easy,hard}. Builds fmev first; run eval/setup.sh once.
 set -eu
 REPO="$(cd "$(dirname "$0")/.." && pwd)"

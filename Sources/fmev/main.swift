@@ -17,11 +17,6 @@ Starts a server on http://127.0.0.1:8787 with these endpoints:
 Configure it with environment variables:
   FMEV_HOST, FMEV_PORT    listen address (default 127.0.0.1:8787)
   FMEV_API_KEY            require Authorization: Bearer <key>
-  FMEV_MODE               verbal (default) or adaptive
-  FMEV_SAMPLES            adaptive: the most samples per question (8)
-  FMEV_EARLY_STOP         adaptive: samples before stopping on agreement (3)
-  FMEV_TEMPERATURE        adaptive: sampling temperature (1.0)
-  FMEV_SMOOTHING          adaptive: smoothing on vote counts (0.25)
   FMEV_CONCURRENCY        on-device generations in flight (4)
 
 Requires an Apple Silicon Mac on macOS 27+ with Apple Intelligence turned on.
@@ -44,25 +39,11 @@ let apiKey = env["FMEV_API_KEY"].flatMap { $0.isEmpty ? nil : $0 }
 let modelName = "fmev"
 
 var config = EngineConfig()
-if let v = env["FMEV_SAMPLES"].flatMap(Int.init) { config.samples = max(1, v) }
-if let v = env["FMEV_TEMPERATURE"].flatMap(Double.init) { config.temperature = v }
-if let v = env["FMEV_SMOOTHING"].flatMap(Double.init) { config.smoothing = max(0, v) }
 if let v = env["FMEV_CONCURRENCY"].flatMap(Int.init) { config.concurrency = max(1, v) }
-if let v = env["FMEV_MODE"], !v.isEmpty {
-    guard let mode = EngineConfig.Mode(rawValue: v) else {
-        FileHandle.standardError.write(Data("fmev: unknown FMEV_MODE '\(v)'; use verbal or adaptive\n".utf8))
-        exit(2)
-    }
-    config.mode = mode
-}
-if let v = env["FMEV_EARLY_STOP"].flatMap(Int.init) { config.earlyStop = max(1, v) }
 
 let engine = Engine(config: config)
-let method = config.mode == .verbal
-    ? "probabilities from the model's stated confidence"
-    : "probabilities estimated from up to \(config.samples) constrained samples"
 let models: [[String: Any]] = [
-    ["name": modelName, "description": "Apple Foundation Models (on-device), \(method).", "release_date": "2026-09-15"],
+    ["name": modelName, "description": "Apple Foundation Models (on-device), probabilities from the model's stated confidence.", "release_date": "2026-09-15"],
     ["name": "jev-latest", "description": "Alias for \(modelName).", "release_date": "2026-09-15"],
 ]
 
@@ -93,9 +74,7 @@ func route(_ request: HTTPRequest) async -> HTTPResponse {
         do {
             let parsed = try parseSystemOneRequest(
                 request.body, allowImages: request.headers["typesafe-danger-zone-images"] == "true")
-            // Non-standard override for experimentation: X-FM-Samples: <n>
-            let samples = request.headers["x-fm-samples"].flatMap(Int.init).map { min(max($0, 1), 64) } ?? config.samples
-            let (answers, usage) = try await engine.evaluate(parsed, samples: samples)
+            let (answers, usage) = try await engine.evaluate(parsed)
             return .json(200, [
                 "model": modelName,
                 "answers": answers,
@@ -124,6 +103,6 @@ if let problem = engine.availabilityProblem {
 
 let server = try HTTPServer(host: host, port: port) { await handle($0) }
 server.start {
-    print("fmev listening on http://\(host):\(port) (mode=\(config.mode.rawValue)\(config.mode == .adaptive ? ", samples=\(config.samples)" : ""), concurrency=\(config.concurrency)\(apiKey == nil ? "" : ", auth on"))")
+    print("fmev listening on http://\(host):\(port) (concurrency=\(config.concurrency)\(apiKey == nil ? "" : ", auth on"))")
 }
 dispatchMain()
