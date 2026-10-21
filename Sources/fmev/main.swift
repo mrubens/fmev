@@ -15,15 +15,19 @@ if let v = env["FMEV_SAMPLES"].flatMap(Int.init) { config.samples = max(1, v) }
 if let v = env["FMEV_TEMPERATURE"].flatMap(Double.init) { config.temperature = v }
 if let v = env["FMEV_SMOOTHING"].flatMap(Double.init) { config.smoothing = max(0, v) }
 if let v = env["FMEV_CONCURRENCY"].flatMap(Int.init) { config.concurrency = max(1, v) }
-if env["FMEV_USE_CASE"] == "contentTagging" { config.useCase = .contentTagging }
-if let v = env["FMEV_MODE"].flatMap(EngineConfig.Mode.init(rawValue:)) { config.mode = v }
-if let v = env["FMEV_VERBAL_STYLE"].flatMap(EngineConfig.VerbalStyle.init(rawValue:)) { config.verbalStyle = v }
+if let v = env["FMEV_MODE"], !v.isEmpty {
+    guard let mode = EngineConfig.Mode(rawValue: v) else {
+        FileHandle.standardError.write(Data("fmev: unknown FMEV_MODE '\(v)'; use verbal or adaptive\n".utf8))
+        exit(2)
+    }
+    config.mode = mode
+}
 if let v = env["FMEV_EARLY_STOP"].flatMap(Int.init) { config.earlyStop = max(1, v) }
 
 let engine = Engine(config: config)
 let method = config.mode == .verbal
-    ? "probabilities from the model's stated confidence (\(config.verbalStyle.rawValue))"
-    : "probabilities estimated from up to \(config.samples) constrained samples (\(config.mode.rawValue))"
+    ? "probabilities from the model's stated confidence"
+    : "probabilities estimated from up to \(config.samples) constrained samples"
 let models: [[String: Any]] = [
     ["name": modelName, "description": "Apple Foundation Models (on-device), \(method).", "release_date": "2026-09-15"],
     ["name": "jev-latest", "description": "Alias for \(modelName).", "release_date": "2026-09-15"],
@@ -87,6 +91,6 @@ if let problem = engine.availabilityProblem {
 
 let server = try HTTPServer(host: host, port: port) { await handle($0) }
 server.start {
-    print("fmev listening on http://\(host):\(port) (mode=\(config.mode.rawValue)\(config.mode == .verbal ? "/" + config.verbalStyle.rawValue : ""), samples=\(config.samples), concurrency=\(config.concurrency)\(apiKey == nil ? "" : ", auth on"))")
+    print("fmev listening on http://\(host):\(port) (mode=\(config.mode.rawValue)\(config.mode == .adaptive ? ", samples=\(config.samples)" : ""), concurrency=\(config.concurrency)\(apiKey == nil ? "" : ", auth on"))")
 }
 dispatchMain()

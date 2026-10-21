@@ -4,10 +4,10 @@ These scripts run [jevbench](https://github.com/fstandhartinger/jevbench)'s publ
 
 ```bash
 eval/setup.sh                              # clone jevbench at the pinned commit into bench/
-eval/bench.sh verbal-anchored              # the default configuration
-eval/bench.sh vote FMEV_MODE=vote          # any FMEV_* settings, as VAR=value
+eval/bench.sh verbal                       # the default configuration
+eval/bench.sh adaptive FMEV_MODE=adaptive  # any FMEV_* settings, as VAR=value
 python3 eval/compare.py bench/runs/*       # accuracy, Brier, ECE, latency, AUROC per set
-python3 eval/rank.py bench/runs/verbal-anchored
+python3 eval/rank.py bench/runs/verbal
 ```
 
 - `bench.sh` builds fmev, starts it on port 8797 with the given settings, runs all three sets, and writes results to `bench/runs/<name>/`. jevbench refuses to overwrite a run, so each name can only be used once.

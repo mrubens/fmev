@@ -2,8 +2,8 @@
 # Benchmarks one fmev configuration on jevbench's public items (231 decisions).
 #
 # Usage: eval/bench.sh <name> [VAR=value ...]
-#   eval/bench.sh verbal-anchored
-#   eval/bench.sh vote FMEV_MODE=vote
+#   eval/bench.sh verbal
+#   eval/bench.sh adaptive FMEV_MODE=adaptive
 # Results go to bench/runs/<name>/{original,easy,hard}. Builds fmev first; run eval/setup.sh once.
 set -eu
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
