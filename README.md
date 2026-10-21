@@ -30,15 +30,44 @@ swift build -c release
 
 ## Use
 
+For example, to pick the best status emoji for an away message, make the message the state and the candidate emoji the options of a Choice question:
+
 ```bash
 curl -s localhost:8787/v1/systemone -H 'Content-Type: application/json' -d '{
   "model": "jev-latest",
-  "state": "I was charged twice. Please refund the extra charge.",
+  "state": {"away_message": "Boarding now, back online when I land in Tokyo (~14h)."},
   "questions": {
-    "billing": {"type": "noul", "instructions": "Is this message about billing?"},
-    "urgency": {"type": "score", "instructions": "How urgent is this?", "criteria": ["Can wait", "This week", "Today"]}
+    "emoji": {
+      "type": "choice",
+      "instructions": "Which status emoji best fits this away message?",
+      "criteria": {
+        "🌴": "On vacation or holiday",
+        "✈️": "Traveling: on a flight or in transit",
+        "🤒": "Out sick",
+        "🍽️": "On a meal break, back shortly",
+        "📅": "In meetings, available later today",
+        "🎯": "Focus time, do not disturb"
+      }
+    }
   }
 }'
+```
+
+Response:
+
+```json
+{
+  "answers": {
+    "emoji": {
+      "choice": "✈️",
+      "confidence": 0.94,
+      "probabilities": {"✈️": 0.95, "🌴": 0.01, "🍽️": 0.01, "🎯": 0.01, "📅": 0.01, "🤒": 0.01},
+      "type": "choice"
+    }
+  },
+  "model": "fmev",
+  "usage": {"input_tokens": 360, "output_tokens": 18}
+}
 ```
 
 With the SDK:
@@ -82,43 +111,3 @@ Other approaches were measured and dropped: sampling the model several times and
 - `box` questions and image `assets` return 422.
 - The context window is small (8,192 tokens), so a long `state` returns 413.
 - Apple's guardrails can refuse some content, which returns 422.
-
-## Example: the best emoji for an away message
-
-The away message is the state, and the candidate emoji are the options of a Choice question:
-
-```bash
-curl -s localhost:8787/v1/systemone -H 'Content-Type: application/json' -d '{
-  "model": "jev-latest",
-  "state": {"away_message": "Boarding now, back online when I land in Tokyo (~14h)."},
-  "questions": {
-    "emoji": {
-      "type": "choice",
-      "instructions": "Which status emoji best fits this away message?",
-      "criteria": {
-        "🌴": "On vacation or holiday",
-        "✈️": "Traveling: on a flight or in transit",
-        "🤒": "Out sick",
-        "🍽️": "On a meal break, back shortly",
-        "📅": "In meetings, available later today",
-        "🎯": "Focus time, do not disturb"
-      }
-    }
-  }
-}'
-```
-
-```json
-{
-  "answers": {
-    "emoji": {
-      "choice": "✈️",
-      "confidence": 0.94,
-      "probabilities": {"✈️": 0.95, "🌴": 0.01, "🍽️": 0.01, "🎯": 0.01, "📅": 0.01, "🤒": 0.01},
-      "type": "choice"
-    }
-  },
-  "model": "fmev",
-  "usage": {"input_tokens": 360, "output_tokens": 18}
-}
-```
