@@ -30,29 +30,13 @@ swift build -c release
 
 ## Use
 
-For example, to pick the best status emoji for an away message, make the message the state and the candidate emoji the options of a Choice question. This example runs fmev with the optional runner-up question turned on:
-
-```bash
-FMEV_RUNNER_UP=1 fmev
-```
-
 ```bash
 curl -s localhost:8787/v1/systemone -H 'Content-Type: application/json' -d '{
   "model": "fmev",
-  "state": {"away_message": "Off the grid hiking in Patagonia, flights back on the 20th."},
+  "state": "I was charged twice. Please refund the extra charge.",
   "questions": {
-    "emoji": {
-      "type": "choice",
-      "instructions": "Which status emoji best fits this away message?",
-      "criteria": {
-        "🌴": "On vacation or holiday",
-        "✈️": "Traveling: on a flight or in transit",
-        "🤒": "Out sick",
-        "🍽️": "On a meal break, back shortly",
-        "📅": "In meetings, available later today",
-        "🎯": "Focus time, do not disturb"
-      }
-    }
+    "billing": {"type": "noul", "instructions": "Is this message about billing?"},
+    "urgency": {"type": "score", "instructions": "How urgent is this?", "criteria": ["Can wait", "This week", "Today"]}
   }
 }'
 ```
@@ -62,19 +46,19 @@ Response:
 ```json
 {
   "answers": {
-    "emoji": {
-      "choice": "🌴",
-      "confidence": 0.7,
-      "probabilities": {"✈️": 0.08, "🌴": 0.75, "🍽️": 0.0425, "🎯": 0.0425, "📅": 0.0425, "🤒": 0.0425},
-      "type": "choice"
+    "billing": {"noul": 0.98, "type": "noul"},
+    "urgency": {
+      "confidence": 0.9,
+      "legend": {"0": "Can wait", "1": "This week", "2": "Today"},
+      "probabilities": {"0": 0.016667, "1": 0.033333, "2": 0.95},
+      "score": 1.933333,
+      "type": "score"
     }
   },
   "model": "fmev",
-  "usage": {"input_tokens": 826, "output_tokens": 42}
+  "usage": {"input_tokens": 599, "output_tokens": 34}
 }
 ```
-
-The message fits both 🌴 and ✈️, so the model reports only 75% confidence in its pick, and the runner-up question puts ✈️ second. Without `FMEV_RUNNER_UP`, the other five options would get 0.05 each. The runner-up's extra share is deliberately small, because the model's second choice is only right a little more often than chance (see [How it works](#how-it-works-and-how-it-differs-from-jev)).
 
 With the SDK:
 
