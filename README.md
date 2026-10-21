@@ -35,7 +35,7 @@ For example, to pick the best status emoji for an away message, make the message
 ```bash
 curl -s localhost:8787/v1/systemone -H 'Content-Type: application/json' -d '{
   "model": "fmev",
-  "state": {"away_message": "Boarding now, back online when I land in Tokyo (~14h)."},
+  "state": {"away_message": "Dentist appointment then lunch, back around 2."},
   "questions": {
     "emoji": {
       "type": "choice",
@@ -59,16 +59,18 @@ Response:
 {
   "answers": {
     "emoji": {
-      "choice": "✈️",
-      "confidence": 0.94,
-      "probabilities": {"✈️": 0.95, "🌴": 0.01, "🍽️": 0.01, "🎯": 0.01, "📅": 0.01, "🤒": 0.01},
+      "choice": "🍽️",
+      "confidence": 0.7,
+      "probabilities": {"✈️": 0.05, "🌴": 0.05, "🍽️": 0.75, "🎯": 0.05, "📅": 0.05, "🤒": 0.05},
       "type": "choice"
     }
   },
   "model": "fmev",
-  "usage": {"input_tokens": 360, "output_tokens": 18}
+  "usage": {"input_tokens": 355, "output_tokens": 18}
 }
 ```
+
+The message fits both 🍽️ and 🤒, so the model reports only 75% confidence in its pick. fmev gets one stated probability from the model, so the other options share the remainder equally.
 
 With the SDK:
 
