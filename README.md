@@ -30,12 +30,16 @@ swift build -c release
 
 ## Use
 
-For example, to pick the best status emoji for an away message, make the message the state and the candidate emoji the options of a Choice question:
+For example, to pick the best status emoji for an away message, make the message the state and the candidate emoji the options of a Choice question. This example runs fmev with the optional runner-up question turned on:
+
+```bash
+FMEV_RUNNER_UP=1 fmev
+```
 
 ```bash
 curl -s localhost:8787/v1/systemone -H 'Content-Type: application/json' -d '{
   "model": "fmev",
-  "state": {"away_message": "Dentist appointment then lunch, back around 2."},
+  "state": {"away_message": "Off the grid hiking in Patagonia, flights back on the 20th."},
   "questions": {
     "emoji": {
       "type": "choice",
@@ -59,18 +63,18 @@ Response:
 {
   "answers": {
     "emoji": {
-      "choice": "🍽️",
+      "choice": "🌴",
       "confidence": 0.7,
-      "probabilities": {"✈️": 0.05, "🌴": 0.05, "🍽️": 0.75, "🎯": 0.05, "📅": 0.05, "🤒": 0.05},
+      "probabilities": {"✈️": 0.08, "🌴": 0.75, "🍽️": 0.0425, "🎯": 0.0425, "📅": 0.0425, "🤒": 0.0425},
       "type": "choice"
     }
   },
   "model": "fmev",
-  "usage": {"input_tokens": 355, "output_tokens": 18}
+  "usage": {"input_tokens": 826, "output_tokens": 42}
 }
 ```
 
-The message fits both 🍽️ and 🤒, so the model reports only 75% confidence in its pick. By default the other options share the remainder equally; with `FMEV_RUNNER_UP=1`, the model's second choice gets a larger share.
+The message fits both 🌴 and ✈️, so the model reports only 75% confidence in its pick, and the runner-up question puts ✈️ second. Without `FMEV_RUNNER_UP`, the other five options would get 0.05 each. The runner-up's extra share is deliberately small, because the model's second choice is only right a little more often than chance (see [How it works](#how-it-works-and-how-it-differs-from-jev)).
 
 With the SDK:
 
